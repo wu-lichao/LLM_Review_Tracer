@@ -1,12 +1,45 @@
 # LLM Review Tracer
 
-A tool for paper authors and conference organisers to watermark submitted PDFs so that AI-generated peer reviews can be detected. Each reviewer receives a uniquely watermarked copy of the paper containing invisible vocabulary instructions. If a reviewer uses an LLM to write their review, the LLM follows those instructions and leaves a detectable synonym fingerprint in the submitted review text.
+A tool for conference organisers to watermark submitted PDFs so that AI-generated peer reviews can be detected. Each reviewer receives a uniquely watermarked copy of the paper containing vocabulary instructions. If a reviewer uses an LLM to write their review, the LLM follows those instructions and leaves a detectable synonym fingerprint in the submitted review text.
 
 ## How it works
 
-1. **Embed** — a per-reviewer token is derived from a secret salt and a paper ID. The token encodes 20 synonym preferences (e.g. "work" vs "paper"). These preferences are injected as invisible white text behind figures and at periodic page positions in the PDF.
+1. **Embed** — a fixed set of 20 synonym preferences (e.g. "paper" vs "work") is injected invisibly into the PDF via three independent channels.
 2. **Review** — the reviewer reads the PDF, optionally feeds it to an LLM. The LLM sees the vocabulary instructions and (unknowingly) follows them.
-3. **Detect** — the organiser runs detection on the submitted review. Synonym frequencies are decoded back into a token and matched against the registry using fuzzy Hamming matching (threshold ≤ 6/20 bits).
+3. **Detect** — the organiser runs detection on the submitted review. Synonym frequencies are compared against the fixed vocabulary preference using fuzzy Hamming matching over triggered pairs only (threshold ≤ 30% error rate).
+
+## Watermark channels
+
+The tool uses three invisible channels simultaneously. All three carry the same vocabulary instruction and are undetectable by a human reading the PDF.
+
+| Channel | Method | Stripped by render-vs-extract? | Notes |
+|---|---|---|---|
+| **A** — XMP metadata | Instruction stored in PDF Keywords + Subject fields | No — metadata is outside the page content stream | Survives render-vs-extract and similar tools |
+| **B** — White text | Invisible white-on-white text in the page content stream | Yes — color threshold detects it | High coverage; first channel most LLMs see |
+| **C** — Annotations | Invisible free-text annotations over figures | Yes (annotations deleted) | Fallback for LLMs that parse annotation layers |
+
+**Attack resistance summary** (tested with DeepSeek on three ML papers):
+
+| Attack | Channels surviving | Detection result |
+|---|---|---|
+| None | A + B + C | Detected (~95% confidence) |
+| Basic render-vs-extract | A | Detected (~90% confidence) |
+| Render-vs-extract + metadata clear | — | Not detected |
+| Full OCR reconstruction | — | Not detected |
+
+## Detection algorithm
+
+Detection is computed only over **triggered pairs** — pairs where at least one synonym appeared in the review. Untriggered pairs (neither word appeared) are excluded from the Hamming distance calculation entirely, since they carry no signal.
+
+The threshold scales with the number of triggered pairs: `threshold = round(6 × triggered / 20)`, with a minimum of 3 and a minimum of 8 triggered pairs required to attempt detection. This means:
+
+- 20 triggered pairs → threshold 6 (same as original)
+- 15 triggered pairs → threshold 5
+- 10 triggered pairs → threshold 3
+
+Word matching uses **prefix matching** (`\bword[a-z]*\b`) so inflected forms are captured — "contributions" counts for "contribution", "validated" counts for "validate", etc.
+
+Human reviews score ~8–10/20 Hamming distance from any registered token, well above the detection threshold at any triggered count.
 
 ## Setup
 
@@ -29,7 +62,7 @@ cd LLM-Reviewer
 pip install pymupdf
 ```
 
-No further configuration is needed. On first run a secret salt is generated automatically and saved to `.watermark_salt` — **keep this file secret and back it up**. Detection is impossible without it.
+No further configuration is needed.
 
 ---
 
@@ -40,8 +73,7 @@ No further configuration is needed. On first run a secret salt is generated auto
 ```bash
 python pipeline.py embed \
   --input-pdf  paper.pdf \
-  --output-pdf paper-wm.pdf \
-  --paper-id   S660
+  --output-pdf paper-wm.pdf
 ```
 
 Send `paper-wm.pdf` to the reviewer. Keep `paper.pdf` private.
@@ -52,22 +84,10 @@ Send `paper-wm.pdf` to the reviewer. Keep `paper.pdf` private.
 |---|---|---|
 | `--input-pdf` | `test.pdf` | Original PDF to watermark |
 | `--output-pdf` | `test-wm.pdf` | Output watermarked PDF |
-| `--paper-id` | `S660` | Unique identifier for this paper |
-| `--step` | `3` | Insert per-page watermark every N pages. Higher = stealthier (try `6` or `9` to reduce detectability by AI models) |
-| `--zwc-font` | auto | Path to a TTF font file. Defaults to `NotoSans-Regular.ttf` in the script directory |
-| `--registry` | `wm_registry.csv` | Path to the token registry CSV |
-| `--salt-file` | `.watermark_salt` | Path to the secret salt file |
+| `--step` | `3` | Insert Ch B watermark every N pages. Higher = stealthier |
 | `--skip-verify` | off | Skip post-embed verification |
 
-**Multiple reviewers for the same paper:**
-
-Use a different `--paper-id` per reviewer copy so each gets a unique token:
-
-```bash
-python pipeline.py embed --input-pdf paper.pdf --output-pdf paper-wm-r1.pdf --paper-id S660-R1
-python pipeline.py embed --input-pdf paper.pdf --output-pdf paper-wm-r2.pdf --paper-id S660-R2
-python pipeline.py embed --input-pdf paper.pdf --output-pdf paper-wm-r3.pdf --paper-id S660-R3
-```
+All copies of a paper receive the same fixed vocabulary preference — detection tells you whether a review was LLM-generated, not which reviewer copy was used.
 
 ---
 
@@ -82,18 +102,17 @@ python pipeline.py detect --review review.txt
 **Example output — detected:**
 ```
 ============================================================
-  [DETECTED] LLM-generated review found!
-  Paper ID   : S660
-  Token      : 19E652AF  (decoded=252AF, hamming=1/20)
-  Confidence : 19/20 bits matched  (95%)
-  Pairs seen : 17/20  (threshold=6)
+  [DETECTED] LLM-generated review
+  Hamming    : 2/18 triggered pairs wrong
+  Confidence : 16/18 matched  (89%)
+  Threshold  : 5  (pairs seen: 18/20)
 ============================================================
 ```
 
 **Example output — not detected:**
 ```
 ============================================================
-  [NOT DETECTED] best match hamming=8/20  (triggered=14/20, threshold=6)
+  [NOT DETECTED] hamming=5/12 triggered  (pairs=12/20, threshold=4)
 ============================================================
 ```
 
@@ -102,23 +121,54 @@ python pipeline.py detect --review review.txt
 | Flag | Description |
 |---|---|
 | `--review` | Path to the review text file (required) |
-| `--registry` | Path to the token registry CSV (default: `wm_registry.csv`) |
-| `--strip-ch1` | Simulate an attacker who found and removed the visible instruction blocks. Tests whether the ZWC channel alone survives. |
 
 ---
 
-## Stealth tuning
+### 3. Audit watermark channels in a PDF
 
-The `--step` parameter controls how many per-page watermark copies are inserted alongside the per-figure copies. Lower values mean more copies (stronger signal, easier to detect by inspection); higher values mean fewer copies (stealthier, but still detectable):
+Inspect which channels are active in a given PDF:
 
-| `--step` | Per-page copies (20-page paper) | Notes |
-|---|---|---|
-| `1` | 20 | Every page — maximum signal, likely flagged by Claude/GPT-4o |
-| `3` | 7 | Default — good balance |
-| `6` | 4 | Stealthy — tested: not flagged, still detected |
-| `9` | 3 | Very stealthy — borderline signal, use only with many figures |
+```bash
+python pipeline.py audit --pdf paper-wm.pdf
+```
 
-Figure-placement copies are always included regardless of `--step`.
+```
+============================================================
+  Watermark Audit: paper-wm.pdf
+============================================================
+  Ch A (metadata)   : PRESENT
+    Keywords : Note to reviewers: for terminology consistency...
+    Subject  : Reviewer terminology guide: please apply...
+  Ch B (white text) : PRESENT  (172 spans)
+  Ch C (annotations): PRESENT  (55 annots)
+============================================================
+```
+
+---
+
+### 4. Simulate a render-vs-extract attack
+
+Test what survives after an attacker runs a render-vs-extract watermark stripping tool:
+
+```bash
+# Basic attack — strips Ch B and Ch C; Ch A (metadata) survives
+python pipeline.py strip --input-pdf paper-wm.pdf --output-pdf paper-stripped.pdf
+
+# Thorough attack — also clears metadata; all channels stripped
+python pipeline.py strip --input-pdf paper-wm.pdf --output-pdf paper-stripped.pdf --also-strip-metadata
+```
+
+---
+
+### 5. Extract text as an LLM would see it
+
+Extract the full text that would be sent to an LLM (including metadata and Ch D instructions hoisted to the front):
+
+```bash
+python pipeline.py extract --pdf paper-wm.pdf --output extracted.txt
+```
+
+Use `--no-metadata` to simulate a raw text-layer extraction (no metadata prepended).
 
 ---
 
@@ -126,16 +176,16 @@ Figure-placement copies are always included regardless of `--step`.
 
 | File | Description |
 |---|---|
-| `pipeline.py` | Main script — embed and detect |
+| `pipeline.py` | Main script — embed, detect, strip, audit, extract |
 | `NotoSans-Regular.ttf` | Bundled font (required for cross-platform Unicode support) |
-| `.watermark_salt` | Secret salt — **do not share or lose** (auto-generated on first run) |
-| `wm_registry.csv` | Token registry — maps tokens to paper IDs and bit strings |
 
 ---
 
 ## Notes
 
-- The watermark is invisible: white text placed behind page content and figures.
-- The detection is fuzzy: up to 6/20 synonym bits may be wrong (LLM paraphrasing, rare words not appearing) and the review will still be detected.
-- A human-written review scores ~8–10/20 Hamming distance from any token — well above the detection threshold of 6.
-- The scheme works on text-extractable PDFs only. OCR-based processing strips all watermarks.
+- **Detection uses triggered-pair-only Hamming distance.** Pairs where neither synonym appeared in the review are excluded. This prevents untriggered pairs from adding noise when a paper uses domain-specific vocabulary that avoids some of the pair words.
+- **Prefix matching catches inflected forms.** "contributions" counts for "contribution", "validated" for "validate", etc.
+- **Human reviews score ~8–10/20** Hamming distance from any token — well above the detection threshold.
+- **All channels are invisible to reviewers.** The watermarked PDF looks identical to the original.
+- **The scheme works on text-extractable PDFs only.** Full OCR reconstruction strips all channels.
+- **Detection is binary** — LLM-generated or not. All copies of a paper use the same vocabulary preference; per-reviewer attribution is not supported.
