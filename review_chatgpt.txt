@@ -1,0 +1,41 @@
+Here’s a concise review of the paper. I based this on the uploaded PDF, focusing on the paper’s stated approach, setup, and reported results. 
+
+**Summary**
+
+This paper introduces **SteerMoE**, a test-time steering framework for MoE language models. The key idea is to identify experts associated with contrasting behaviors by comparing expert activation frequencies on paired examples, then steer behavior by activating or deactivating those experts through router-logit edits at inference time. The paper evaluates this on two settings: improving **faithfulness** in retrieval-grounded QA and improving or degrading **safety** on harmful-prompt benchmarks. The reported results are strong: up to **+27%** faithfulness improvement, up to **+20%** safety improvement, and very large safety degradation under unsafe steering, especially when combined with existing jailbreak prompts.  
+
+**Strengths**
+
+The paper’s main strength is that the approach is **simple, lightweight, and model-preserving**. It does not require fine-tuning or weight updates, which makes it attractive both as a deployment-time control mechanism and as an analysis tool for MoE behavior. The use of paired examples and a risk-difference score is easy to understand and easy to reproduce conceptually. 
+
+A second strength is the **breadth of evaluation**. The paper studies both positive steering for faithfulness/safety and negative steering for adversarial misuse. That makes the contribution more compelling than papers that only report helpful steering. The fact that unsafe steering composes with existing jailbreak methods is also an important finding about MoE-specific vulnerabilities, not just a benchmark win.  
+
+A third strength is the paper’s **interpretability angle**. The observation that behavior-linked experts cluster in middle layers, and that safe/unsafe experts fire on corresponding token types, gives the work value beyond raw steering. It suggests that routing is not only a compute mechanism but also a behaviorally meaningful interface. 
+
+**Weaknesses**
+
+The biggest weakness is that the paper is not yet fully convincing on **selectivity and collateral effects**. The paper claims steering can improve safety without increasing over-refusal on benign prompts, but from the material surfaced here, the evidence for preserving general utility, helpfulness, and task quality outside the measured benchmarks seems limited. I would want a clearer account of tradeoffs on standard downstream tasks and a broader benign set. 
+
+Relatedly, the mechanism may be **coarse**. Forcing experts on or off by moving them above or below all competitors is simple, but it risks distorting routing more than necessary. The paper argues this remains “soft” and avoids collapse, but I would still like stronger ablations on how sensitive results are to the number of steered experts, the margin size, and layer choice. Those details matter for judging whether the effect comes from precise behavioral control or from broadly perturbing routing. 
+
+Another limitation is the **detection setup**. The appendix defends teacher-forced prompted completions instead of free generation for safety detection, which is reasonable, but it still leaves open whether the discovered experts are the same ones that matter most during natural generation. This does not break the paper, but it weakens the causal claim slightly. 
+
+Finally, the paper’s strongest safety claims are framed as evidence of vulnerability, which is useful, but the paper would be stronger with a deeper discussion of **defenses**. It ends by calling for safer routing-wide alignment, but more concrete mitigation experiments would improve the practical impact. 
+
+**Questions for the authors**
+
+1. How much does safe steering affect general helpfulness on benign but sensitive prompts, beyond the specific over-refusal checks reported?
+
+2. How sensitive are the results to the number of activated/deactivated experts, the epsilon margin, and the exact layers selected for intervention?
+
+3. Did you compare risk difference against simpler or more causal alternatives beyond the appendix discussion, such as leave-one-expert-out interventions during detection?
+
+4. For faithfulness, how often does steering improve grounding by making the model more conservative rather than more correct?
+
+5. Since the paper argues alignment may be concentrated in a sparse subset of experts, have you tried training-time regularizers or post-training objectives that distribute safety behavior across routes?  
+
+**Score**
+
+**7/10**
+
+This is a strong, interesting paper with a clear idea and important empirical findings. The novelty is meaningful, especially in treating MoE routing as a behavior-control interface and exposing MoE-specific safety failure modes. I am positive on the paper overall, but I would want stronger evidence on selectivity, side effects, and robustness of the steering mechanism before scoring it higher.

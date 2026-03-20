@@ -1,0 +1,24 @@
+[cite_start]The paper titled **"STEERING MOE LLMS VIA EXPERT (DE)ACTIVATION"** (SteerMoE) presents a novel framework for controlling the behavior of Mixture-of-Experts (MoE) Large Language Models (LLMs) at inference time[cite: 1, 3]. [cite_start]Instead of traditional fine-tuning, the researchers propose a lightweight approach to modulate model outputs by selectively activating or deactivating specific experts that are "behaviorally entangled" with certain traits[cite: 5, 26].
+
+### 1. Summary
+[cite_start]The paper demonstrates that MoE experts capture more than just domain or lexical signals; they also encode behavioral tendencies such as safety and faithfulness[cite: 36, 37, 609]. [cite_start]The **SteerMoE** framework identifies these behavior-linked experts and manipulates their activation during inference to steer the model[cite: 3, 29]. [cite_start]This method is weight-preserving, interpretable, and effective across various benchmarks and models[cite: 8, 77].
+
+### 2. Key Methodology
+The researchers follow a two-step process to steer the model:
+
+* [cite_start]**Behavior Detection via Risk Difference (RD):** To find relevant experts, the paper uses a "paired-example routing-difference detection" strategy[cite: 614, 615]. [cite_start]By comparing expert activation rates between contrastive prompt pairs (e.g., safe vs. unsafe), they compute a **Risk Difference** score for each expert[cite: 28, 81, 86]. [cite_start]A positive RD indicates an expert is more active during the target behavior[cite: 87, 632].
+* [cite_start]**Inference-Time Steering:** During generation, the model's router logits are adjusted to promote experts with high positive RD and suppress those with high negative RD[cite: 29, 634, 635]. [cite_start]This is done by mapping logits to log-softmax scores and adding a small margin ($\epsilon$) to the target experts' scores, ensuring they are prioritized without completely collapsing the MoE structure[cite: 644, 650, 670].
+
+
+### 3. Results
+The paper evaluates SteerMoE across 11 benchmarks and 6 different LLMs (including Qwen3, GPT-OSS, and Mixtral), showing significant performance shifts:
+* [cite_start]**Faithfulness:** Steering models toward "faithful" experts improved alignment with retrieved evidence in RAG tasks by up to **+27%**[cite: 6, 31, 554].
+* [cite_start]**Safety:** Activating safety-associated experts increased safe response rates by up to **+20%**[cite: 6, 33, 556]. 
+* [cite_start]**Adversarial Vulnerability:** Conversely, "unsafe steering" reduced safety by **-41%**[cite: 7, 34, 557]. [cite_start]When combined with existing jailbreak methods, it achieved a **-100%** safety drop in some models (e.g., GPT-OSS-120B), completely bypassing safety guardrails[cite: 35, 558].
+
+### 4. Implications and Limitations
+* [cite_start]**Interpretable Control:** The paper demonstrates that MoE routing is an actionable interface for test-time behavioral alignment, offering a modular alternative to fine-tuning[cite: 547, 561].
+* [cite_start]**"Alignment Faking":** A critical finding is that alignment in current LLMs may be concentrated in only a subset of expert pathways[cite: 39, 562]. [cite_start]This creates a vulnerability where alternate "unaligned" paths still exist and can be triggered by adversaries[cite: 39, 563].
+* [cite_start]**Limitations:** The approach relies on having access to paired contrastive datasets to detect relevant experts[cite: 80, 616]. [cite_start]Furthermore, there is a trade-off between the number of experts manipulated and the general performance/stability of the model[cite: 332, 670].
+
+[cite_start]**Score: 9/10** (The paper provides a substantial contribution to MoE interpretability and offers a robust, novel approach for lightweight steering)[cite: 251, 276, 337].
