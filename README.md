@@ -1,6 +1,6 @@
 # LLM Review Tracer
 
-A tool for conference organisers to watermark submitted PDFs so that AI-generated peer reviews can be detected. Each reviewer receives a uniquely watermarked copy of the paper containing vocabulary instructions. If a reviewer uses an LLM to write their review, the LLM follows those instructions and leaves a detectable synonym fingerprint in the submitted review text.
+A tool for authors to watermark submitted PDFs so that AI-generated peer reviews can be detected. Each reviewer receives a uniquely watermarked copy of the paper containing vocabulary instructions. If a reviewer uses an LLM to write their review, the LLM follows those instructions and leaves a detectable synonym fingerprint in the submitted review text.
 
 ## How it works
 
